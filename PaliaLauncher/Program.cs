@@ -1,19 +1,15 @@
 ﻿using System.Net;
 using PaliaLauncher;
 
-const string BUNDLE = "Palia";
-const string CHANNEL = "live";
-const string PLATFORM = "windows";
 const string GAME_ROOT = "C:\\Users\\klukule\\AppData\\Local\\Palia\\Client"; // TODO: Pull of of magic hat or wherever it's stored
-// TODO: Factor out the base URL here as it's used in multiple places
 
 long runningTotal = 0;
 var sw = System.Diagnostics.Stopwatch.StartNew();
 Console.WriteLine("Fetching channel info...");
-var resp = UpdateServer.FetchChannelInfo(BUNDLE, CHANNEL).Result;
+var resp = await UpdateServer.FetchChannelInfo(Configuration.Bundle, Configuration.Channel);
 if (!resp.Ok)
 {
-    Console.WriteLine("Error fetching manifest: " + (resp.Data as UpdateServerResponse.ErrorResponse)!.Message);
+    Console.WriteLine("Error fetching channel info: " + resp.Data);
     return;
 }
 
@@ -23,24 +19,34 @@ Console.WriteLine("Channel info OK - " + sw.Elapsed.TotalSeconds + " seconds");
 
 var channelInfo = (resp.Data as UpdateServerResponse.ChannelInfoResponse)!;
 
-Console.WriteLine("Palia version: " + channelInfo.Version);
+Console.WriteLine("Latest palia version: " + channelInfo.Version);
 
+// TODO: Proper CLI interface
 if (args.Length >= 2 && args[0] == "--override")
 {
     channelInfo.Version = args[1];
     Console.WriteLine("Overriding version to " + channelInfo.Version);
 }
 
+// TODO: if channelInfo.Version == currentVersion, exit
+
 sw.Restart();
 Console.WriteLine("Fetching manifest...");
-var manifestData = UpdateServer.FetchManifest(BUNDLE, channelInfo.Version, PLATFORM);
+var manifestData = await UpdateServer.FetchManifest(Configuration.Bundle, channelInfo.Version, Configuration.Platform);
+
+if (!manifestData.Ok)
+{
+    Console.WriteLine("Error fetching manifest: " + manifestData.Data);
+    return;
+}
+
 sw.Stop();
 runningTotal += sw.ElapsedMilliseconds;
 Console.WriteLine("Manifest fetch OK - " + sw.Elapsed.TotalSeconds + " seconds");
 
 sw.Restart();
 Console.WriteLine("Parsing manifest...");
-var manifest = ManifestParser.ParseManifest(manifestData);
+var manifest = ManifestParser.ParseManifest(manifestData.Data as byte[]);
 
 if (manifest == null)
 {
@@ -51,6 +57,7 @@ if (manifest == null)
 sw.Stop();
 runningTotal += sw.ElapsedMilliseconds;
 Console.WriteLine("Manifest OK - " + sw.Elapsed.TotalSeconds + " seconds");
+Console.WriteLine("Manifest version: " + manifest.Version + " (" + manifest.Platform + ") - " + manifest.Contents.Count + " files");
 
 sw.Restart();
 Console.WriteLine("Building file map...");
@@ -75,13 +82,13 @@ var client = new HttpClient
     DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
 };
 
-Parallel.ForEach(map.Entries.Values, (file) =>
+await Parallel.ForEachAsync(map.Entries.Values, async (file, ct) =>
 {
     if (file.LocalFile == null)
     {
         Console.WriteLine("Downloading " + file.RemoteFile.Path);
-        var url = $"https://dl.palia.com/bundle/{BUNDLE}/v/{channelInfo.Version}/{PLATFORM}/file/{file.RemoteFile.Path}";
-        var response = client.GetByteArrayAsync(url).Result;
+        var url = $"{Configuration.DownloadServer}/bundle/{manifest.Bundle}/v/{manifest.Version}/{manifest.Platform}/file/{file.RemoteFile.Path}";
+        var response = client.GetByteArrayAsync(url, ct).Result;
         var fullPath = Path.Combine(GAME_ROOT, file.RemoteFile.Path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         File.WriteAllBytes(fullPath, response);
@@ -100,8 +107,8 @@ Parallel.ForEach(map.Entries.Values, (file) =>
         {
             // TODO: Compare chunks and download only the chunks that are different
             Console.WriteLine("Updating " + file.RemoteFile.Path);
-            var url = $"https://dl.palia.com/bundle/{BUNDLE}/v/{channelInfo.Version}/{PLATFORM}/file/{file.RemoteFile.Path}";
-            var response = client.GetByteArrayAsync(url).Result; // TODO: Use async/await so we do not eat the exceptions
+            var url = $"{Configuration.DownloadServer}/bundle/{manifest.Bundle}/v/{manifest.Version}/{manifest.Platform}/file/{file.RemoteFile.Path}";
+            var response = await client.GetByteArrayAsync(url, ct);
             File.WriteAllBytes(file.LocalFile.FullName, response);
             Interlocked.Increment(ref updatedFiles);
         }
@@ -111,6 +118,7 @@ Parallel.ForEach(map.Entries.Values, (file) =>
         }
     }
 });
+
 sw.Stop();
 runningTotal += sw.ElapsedMilliseconds;
 Console.WriteLine("Update OK - " + sw.Elapsed.TotalSeconds + " seconds");
@@ -120,3 +128,6 @@ Console.WriteLine("\t" + addedFiles + " files were added");
 Console.WriteLine("\t" + updatedFiles + " files were updated");
 
 Console.WriteLine("Total time: " + runningTotal / 1000.0 + " seconds");
+
+// TODO: Launch palia
+// TODO: Pass through the args?

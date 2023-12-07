@@ -10,7 +10,7 @@ public static class UpdateServer
         try
         {
             var client = new HttpClient();
-            var response = await client.GetStringAsync($"https://dl.palia.com/bundle/{bundle}/channel/{channel}");
+            var response = await client.GetStringAsync($"{Configuration.DownloadServer}/bundle/{bundle}/channel/{channel}");
             var manifest = JsonConvert.DeserializeObject<UpdateServerResponse>(response);
             return manifest;
         }
@@ -28,17 +28,36 @@ public static class UpdateServer
         }
     }
 
-    public static byte[] FetchManifest(string bundle, string version, string platform)
+    public static async Task<UpdateServerResponse> FetchManifest(string bundle, string version, string platform)
     {
         try
         {
             var client = new HttpClient();
-            var response = client.GetByteArrayAsync($"https://dl.palia.com/bundle/{bundle}/v/{version}/{platform}/manifest");
-            return response.Result;
+
+            var resp = await client.GetAsync($"{Configuration.DownloadServer}/bundle/{bundle}/v/{version}/{platform}/manifest");
+            if (resp.IsSuccessStatusCode)
+            {
+                return new UpdateServerResponse()
+                {
+                    Ok = true,
+                    ResponseType = "",
+                    Data = await resp.Content.ReadAsByteArrayAsync()
+                };
+            }
+
+            return JsonConvert.DeserializeObject<UpdateServerResponse>(await resp.Content.ReadAsStringAsync());
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return new UpdateServerResponse
+            {
+                Ok = false,
+                ResponseType = "error",
+                Data = new UpdateServerResponse.ErrorResponse
+                {
+                    Message = ex.Message
+                }
+            };
         }
     }
 }
@@ -46,9 +65,9 @@ public static class UpdateServer
 [JsonConverter(typeof(ResponseConverter))]
 public class UpdateServerResponse
 {
-    public bool Ok { get; set; }
+    public bool Ok { get; init; }
     public string ResponseType { get; set; }
-    public object Data { get; set; }
+    public object Data { get; init; }
 
     public class ChannelInfoResponse
     {
@@ -61,6 +80,23 @@ public class UpdateServerResponse
     public class ErrorResponse
     {
         [JsonProperty("message")] public string Message { get; set; }
+
+        public override string ToString()
+        {
+            return Message;
+        }
+    }
+
+    public class ManifestNotFoundErrorResponse : ErrorResponse
+    {
+        [JsonProperty("bundle")] public string Bundle { get; set; }
+        [JsonProperty("version")] public string Version { get; set; }
+        [JsonProperty("platform")] public string Platform { get; set; }
+
+        public override string ToString()
+        {
+            return base.ToString() + $" (bundle: {Bundle}, version: {Version}, platform: {Platform})";
+        }
     }
 
     private class ResponseConverter : JsonConverter
@@ -80,6 +116,7 @@ public class UpdateServerResponse
                 Ok = jsonObject["ok"]?.Value<bool>() ?? false, ResponseType = responseType,
                 Data = responseType switch
                 {
+                    "manifest_not_found" => jsonObject["v"]!.ToObject<UpdateServerResponse.ManifestNotFoundErrorResponse>(serializer),
                     "channel_info" => jsonObject["v"]!.ToObject<UpdateServerResponse.ChannelInfoResponse>(serializer),
                     "error" => jsonObject["v"]!.ToObject<UpdateServerResponse.ErrorResponse>(serializer),
                     _ => throw new JsonSerializationException("Unknown response type.")
