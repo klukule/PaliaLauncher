@@ -1,8 +1,7 @@
 ﻿using System.Net;
 using PaliaLauncher;
 
-var GAME_ROOT = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "Palia\\Client"); // TODO: Pull of of magic hat or wherever it's stored
+var gameRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Palia\\Client");
 
 long runningTotal = 0;
 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -64,7 +63,7 @@ sw.Restart();
 Console.WriteLine("Building file map...");
 var map = new FileMap();
 map.AddManifestFiles(manifest);
-map.AddLocalFiles(GAME_ROOT);
+map.AddLocalFiles(gameRoot);
 sw.Stop();
 runningTotal += sw.ElapsedMilliseconds;
 Console.WriteLine("File map OK - " + sw.Elapsed.TotalSeconds + " seconds");
@@ -90,7 +89,7 @@ await Parallel.ForEachAsync(map.Entries.Values, async (file, ct) =>
         Console.WriteLine("Downloading " + file.RemoteFile.Path);
         var url = $"{Configuration.DownloadServer}/bundle/{manifest.Bundle}/v/{manifest.Version}/{manifest.Platform}/file/{file.RemoteFile.Path}";
         var response = client.GetByteArrayAsync(url, ct).Result;
-        var fullPath = Path.Combine(GAME_ROOT, file.RemoteFile.Path);
+        var fullPath = Path.Combine(gameRoot, file.RemoteFile.Path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         File.WriteAllBytes(fullPath, response);
         Interlocked.Increment(ref addedFiles);
