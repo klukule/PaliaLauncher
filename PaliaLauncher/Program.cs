@@ -1,7 +1,8 @@
 ﻿using System.Net;
 using PaliaLauncher;
 
-const string GAME_ROOT = "C:\\Users\\klukule\\AppData\\Local\\Palia\\Client"; // TODO: Pull of of magic hat or wherever it's stored
+var GAME_ROOT = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "Palia\\Client"); // TODO: Pull of of magic hat or wherever it's stored
 
 long runningTotal = 0;
 var sw = System.Diagnostics.Stopwatch.StartNew();
